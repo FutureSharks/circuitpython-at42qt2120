@@ -31,10 +31,14 @@ __repo__ = "https://github.com/FutureSharks/circuitpython-at42qt2120"
 # Register addresses.  Unused registers commented out to save memory.
 AT42QT2120_FIRMWARE_VERSION = const(0x1)
 AT42QT2120_I2CADDR_DEFAULT  = const(0x1C)
-AT42QT2120_RESET            = const(7)
+AT42QT2120_DETECTION_STATUS = const(2)
 AT42QT2120_KEY_STATUS_A     = const(3)
 AT42QT2120_KEY_STATUS_B     = const(4)
 AT42QT2120_SLIDER_POSITION  = const(5)
+AT42QT2120_CALIBRATE        = const(6)
+AT42QT2120_RESET            = const(7)
+AT42QT2120_LOW_POWER        = const(8)
+AT42QT2120_SLIDER_OPTIONS   = const(14)
 
 
 class AT42QT2120:
@@ -42,54 +46,167 @@ class AT42QT2120:
 
     def __init__(self, i2c, change_pin, address=AT42QT2120_I2CADDR_DEFAULT):
         self._i2c = i2c_device.I2CDevice(i2c, address)
-        self._buffer = bytearray(2)
+        self._1byte_buffer = bytearray(1)
+        self._2byte_buffer = bytearray(2)
         self._change_pin = change_pin
-        #self.reset()
+        self._slider_wheel_mode_set = False
 
     def _write_register_byte(self, register, value):
         # Write a byte value to the specifier register address.
         with self._i2c:
             self._i2c.write(bytes([register, value]))
 
-    def _read_register_bytes(self, register, result, length=None):
-        # Read the specified register address and fill the specified result byte
-        # array with result bytes.  Make sure result buffer is the desired size
-        # of data to read.
-        if length is None:
-            length = len(result)
+    def _read_1_byte_register(self, register):
+        '''
+        Reads an 8 bit register
+        '''
         with self._i2c:
             self._i2c.write(bytes([register]), stop=False)
-            self._i2c.readinto(result, start=0, end=length)
+            self._i2c.readinto(self._1byte_buffer, start=0, end=1)
+        return self._1byte_buffer
+
+    def _read_2_byte_register(self, register):
+        '''
+        Reads an 16 bit register
+        '''
+        with self._i2c:
+            self._i2c.write(bytes([register]), stop=False)
+            self._i2c.readinto(self._2byte_buffer, start=0, end=2)
+        return self._2byte_buffer
+
+    def _set_key_control(self, key, value):
+        '''
+        Key control registers are 28-39
+        '''
+        if key < 0 or key > 11:
+            raise ValueError('Key must be a value 0-11.')
+        register = key + 28
+        self._write_register_byte(register, value)
+        return True
 
     def reset(self):
-        """Reset the AT42QT2120 into a default state ready to detect touch inputs.
         """
-        # Write to the reset register.
-        self._write_register_byte(AT42QT2120_RESET, 0x63)
-        time.sleep(0.001) # This 1ms delay here probably isn't necessary but can't hurt.
-
-    def get_firmware_version(self):
+        Reset the AT42QT2120 into a default state ready to detect touch inputs.
         """
+        self._write_register_byte(AT42QT2120_RESET, 0x1)
+        return True
+
+    def enable_wheel(self):
         """
-        self._read_register_bytes(AT42QT2120_FIRMWARE_VERSION, self._buffer)
-        return self._buffer
+        Enables the wheel mode on first 3 channels (0, 1, 2)
+        """
+        self._write_register_byte(AT42QT2120_SLIDER_OPTIONS, 0xC0)
+        self._slider_wheel_mode_set = True
+        return True
 
-    def get_slider_position(self):
-        self._read_register_bytes(AT42QT2120_SLIDER_POSITION, self._buffer)
-        return self._buffer
+    def enable_slider(self):
+        """
+        Enables the slider mode on first 3 channels (0, 1, 2)
+        """
+        self._write_register_byte(AT42QT2120_SLIDER_OPTIONS, 0x80)
+        self._slider_wheel_mode_set = True
+        return True
 
-    def get_key_status_a(self):
-        self._read_register_bytes(AT42QT2120_KEY_STATUS_A, self._buffer)
-        return self._buffer
+    def get_slider_wheel_position(self):
+        """
+        Gets the position of the wheel or slider
+        """
+        if not self._slider_wheel_mode_set:
+            raise ValueError('Slider or wheel mode has not been enabled')
+        return self._read_1_byte_register(register=AT42QT2120_SLIDER_POSITION)
 
-    def get_key_status_b(self):
-        self._read_register_bytes(AT42QT2120_KEY_STATUS_B, self._buffer)
-        return self._buffer
+    def low_power(self, value):
+        self._write_register_byte(AT42QT2120_LOW_POWER, value)
+        return True
 
     def change_detected(self):
-        '''
-        '''
         if self._change_pin.value:
             return False
         else:
             return True
+
+    def get_firmware_version(self):
+        version_byte = self._read_1_byte_register(register=AT42QT2120_FIRMWARE_VERSION)[0]
+        return '{0}.{1}'.format(version_byte >> 4, int(bin(version_byte)[4:8]))
+
+    def get_detection_status(self):
+        return self._read_1_byte_register(register=AT42QT2120_DETECTION_STATUS)
+
+    def get_key_status(self):
+        '''
+        Returns key status of all keys as booleans
+        '''
+        result = self._read_2_byte_register(register=AT42QT2120_KEY_STATUS_A)
+        keys_a = [bool(result[0] & (1<<n)) for n in reversed(range(8))]
+        keys_b = [bool(result[1] & (1<<n)) for n in reversed(range(4))]
+        keys_a.extend(keys_b)
+        return keys_a
+
+    def get_key_status_a(self):
+        '''
+        Returns key status of keys 0-7
+        '''
+        result = self._read_1_byte_register(register=AT42QT2120_KEY_STATUS_A)
+        return [bool(result[0] & (1<<n)) for n in reversed(range(8))]
+
+    def get_key_status_b(self):
+        '''
+        Returns key status of keys 8-11
+        '''
+        result = self._read_1_byte_register(register=AT42QT2120_KEY_STATUS_B)
+        return [bool(result[0] & (1<<n)) for n in reversed(range(4))]
+
+    def calibrtate(self):
+        self._write_register_byte(AT42QT2120_CALIBRATE, 0x1)
+        return True
+
+    def set_touch_enabled(self, key, enabled):
+        '''
+        Enable or disable touch for a key. If key is disabled it will be used as
+        an output.
+        '''
+        if enabled == True:
+            value = 0
+        else:
+            value = 1
+        real_value = '000{0}{1}{2}{3}{4}'.format(0, 0, 0, 0, value)
+        self._set_key_control(key, int(real_value, 2))
+        return True
+
+    def set_key_gpo(self, key, value):
+        '''
+        Set a key to be output and GPO high or low.
+        '''
+        if value not in [0, 1]:
+            raise ValueError('Value must be 1 or 0 (high or low)')
+        real_value = '000{0}{1}{2}{3}{4}'.format(0, 0, 0, value, 1)
+        self._set_key_control(key, int(real_value, 2))
+        return True
+
+    def get_key_control(self, key):
+        '''
+        Key control registers are 28-39
+        '''
+        if key < 0 or key > 11:
+            raise ValueError('Key must be a value 0-11.')
+        result = self._read_1_byte_register(register=key + 28)
+        return result[0]
+
+    def get_key_detect_threshold(self, key):
+        '''
+        Key Signal registers are 16-27
+        '''
+        if key < 0 or key > 11:
+            raise ValueError('Key must be a value 0-11.')
+
+        result = self._read_1_byte_register(register=key + 16)
+        return result[0]
+
+    def get_key_signal(self, key):
+        '''
+        Key Signal registers are 52-75
+        '''
+        if key < 0 or key > 11:
+            raise ValueError('Key must be a value 0-11.')
+        result = self._read_2_byte_register(register=key + 52)
+        return (result[0] << 8) + result[1]
