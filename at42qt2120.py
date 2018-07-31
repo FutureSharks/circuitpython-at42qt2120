@@ -134,27 +134,14 @@ class AT42QT2120:
 
     def get_key_status(self):
         '''
-        Returns key status of all keys as booleans
+        Returns list of key status of all keys as booleans. The index of the item
+        in the list is the key number. i.e get_key_status()[3] is status of key 3
         '''
         result = self._read_2_byte_register(register=AT42QT2120_KEY_STATUS_A)
-        keys_a = [bool(result[0] & (1<<n)) for n in reversed(range(8))]
-        keys_b = [bool(result[1] & (1<<n)) for n in reversed(range(4))]
+        keys_a = [bool(result[0] & (1<<n)) for n in range(8)]
+        keys_b = [bool(result[1] & (1<<n)) for n in range(4)]
         keys_a.extend(keys_b)
         return keys_a
-
-    def get_key_status_a(self):
-        '''
-        Returns key status of keys 0-7
-        '''
-        result = self._read_1_byte_register(register=AT42QT2120_KEY_STATUS_A)
-        return [bool(result[0] & (1<<n)) for n in reversed(range(8))]
-
-    def get_key_status_b(self):
-        '''
-        Returns key status of keys 8-11
-        '''
-        result = self._read_1_byte_register(register=AT42QT2120_KEY_STATUS_B)
-        return [bool(result[0] & (1<<n)) for n in reversed(range(4))]
 
     def calibrtate(self):
         self._write_register_byte(AT42QT2120_CALIBRATE, 0x1)

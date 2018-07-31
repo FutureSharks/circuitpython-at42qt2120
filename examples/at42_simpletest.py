@@ -17,7 +17,9 @@ firmware_version = at42.get_firmware_version()
 print('AT42QT2120 with firmware version {0}.{1}'.format(firmware_version[0], firmware_version[1]))
 
 while True:
+    # Wait until a change is detected
     if at42.change_detected():
         print('Touch detected')
-        clear_status = at42.get_key_status_a()
+        # Read key status to clear change state
+        clear_status = at42.get_key_status()
         time.sleep(0.05)
