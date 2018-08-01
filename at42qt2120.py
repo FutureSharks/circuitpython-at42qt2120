@@ -28,7 +28,7 @@ from micropython import const
 __version__ = "0.1"
 __repo__ = "https://github.com/FutureSharks/circuitpython-at42qt2120"
 
-# Register addresses.  Unused registers commented out to save memory.
+# Register addresses
 AT42QT2120_FIRMWARE_VERSION = const(0x1)
 AT42QT2120_I2CADDR_DEFAULT  = const(0x1C)
 AT42QT2120_DETECTION_STATUS = const(2)
@@ -45,6 +45,12 @@ class AT42QT2120:
     """Driver for the AT42QT2120 capacitive touch sensor."""
 
     def __init__(self, i2c, change_pin, address=AT42QT2120_I2CADDR_DEFAULT):
+        '''
+        i2c must be a I2C object from the busio package.
+
+        change_pin must be a DigitalInOut set to input. It is pulled low when
+        the IC detects a change.
+        '''
         self._i2c = i2c_device.I2CDevice(i2c, address)
         self._1byte_buffer = bytearray(1)
         self._2byte_buffer = bytearray(2)
@@ -52,7 +58,6 @@ class AT42QT2120:
         self._slider_wheel_mode_set = False
 
     def _write_register_byte(self, register, value):
-        # Write a byte value to the specifier register address.
         with self._i2c:
             self._i2c.write(bytes([register, value]))
 
@@ -113,24 +118,39 @@ class AT42QT2120:
         """
         if not self._slider_wheel_mode_set:
             raise ValueError('Slider or wheel mode has not been enabled')
-        return self._read_1_byte_register(register=AT42QT2120_SLIDER_POSITION)
+        result = self._read_1_byte_register(register=AT42QT2120_SLIDER_POSITION)
+        return result[0]
 
     def low_power(self, value):
         self._write_register_byte(AT42QT2120_LOW_POWER, value)
         return True
 
     def change_detected(self):
+        '''
+        The change detected flag will be True if any touch has been detected
+        since last register read. It will stay True until a register is read.
+        '''
         if self._change_pin.value:
             return False
         else:
             return True
 
     def get_firmware_version(self):
+        '''
+        Returns firmware version
+        '''
         version_byte = self._read_1_byte_register(register=AT42QT2120_FIRMWARE_VERSION)[0]
         return '{0}.{1}'.format(version_byte >> 4, int(bin(version_byte)[4:8]))
 
     def get_detection_status(self):
-        return self._read_1_byte_register(register=AT42QT2120_DETECTION_STATUS)
+        '''
+        Returns 2 booleans. One for each of whether slider/wheel is in detect,
+        the other if keys are in detect.
+        '''
+        result = self._read_1_byte_register(register=AT42QT2120_DETECTION_STATUS)
+        slider_detect = result[0] in [2, 3]
+        key_detect = result[0] in [1, 3]
+        return (slider_detect, key_detect)
 
     def get_key_status(self):
         '''
@@ -144,6 +164,9 @@ class AT42QT2120:
         return keys_a
 
     def calibrtate(self):
+        '''
+        Triggers the device to calibrate itself
+        '''
         self._write_register_byte(AT42QT2120_CALIBRATE, 0x1)
         return True
 
@@ -191,7 +214,8 @@ class AT42QT2120:
 
     def get_key_signal(self, key):
         '''
-        Key Signal registers are 52-75
+        Returns the signal level of a specific key. Key Signal registers are
+        52-75. Value is an 16 bit integer.
         '''
         if key < 0 or key > 11:
             raise ValueError('Key must be a value 0-11.')
